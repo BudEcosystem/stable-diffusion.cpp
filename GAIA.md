@@ -53,10 +53,23 @@ When upstream adopts a patch (or fixes the same thing its own way), drop the
 patch during the rebase (`git rebase --skip` at its conflict) and take it out
 of the table.
 
+## Releases
+
+`.github/workflows/gaia-release.yml` is Gaia's own workflow. A push to `gaia`
+builds the Linux x86_64 processor zip and checks that `sd-server --version`
+names the pushed commit. A pushed `gaia-*` tag does the same, then publishes
+the zip and its `SHA256SUMS` as the tag's GitHub release. The zip is built on
+Ubuntu 24.04 with upstream's `ubuntu-latest-cmake` options and the web frontend
+off, so its files carry the names upstream's own release zip uses. Gaia's
+recipe reads its url, size and digest from the published release; nothing is
+typed. The GB10's variants are compiled from the tag by Gaia itself, so the
+workflow builds x86_64 alone. Upstream's `build.yml` is left as upstream has
+it.
+
 ## The rule
 
 A Gaia change goes in as a new patch: its own commit, on top of the stack, in
 upstream's style, touching upstream code only as far as the change needs.
-Gaia's own files (`GAIA.md`, `gaia/`) are never mixed into a patch, and a patch
+Gaia's own files (`GAIA.md`, `gaia/`, `.github/workflows/gaia-release.yml`) are never mixed into a patch, and a patch
 never mixes a Gaia-only behaviour into upstream code. Never push to upstream
 from this clone; the fork's remote is `origin`.

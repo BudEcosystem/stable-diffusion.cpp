@@ -1,0 +1,56 @@
+# Gaia's release of a gaia-* tag (see GAIA.md, "Releases"): the Linux x86_64
+# processor zip Gaia's sd.engine fetches, built from the tag's own commit with
+# upstream's ubuntu-latest-cmake job's options, so its files carry the same
+# names as upstream's own release zip. A push to the gaia branch builds and
+# checks it; only a pushed gaia-* tag publishes it. Upstream's build.yml is
+# left exactly as upstream has it.
+name: Gaia release
+
+on:
+  push:
+    branches:
+      - gaia
+    tags:
+      - "gaia-*"
+
+permissions:
+  contents: write
+
+jobs:
+  linux-x86_64:
+    # 24.04, not ubuntu-latest: the glibc the zip asks for is the runner's, and
+    # an older floor runs on more x86_64 systems.
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Clone
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Build
+        # upstream's ubuntu-latest-cmake options, the web frontend off as in
+        # every build Gaia makes (Gaia serves the API, never the page)
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DSD_BUILD_SHARED_LIBS=ON -DGGML_NATIVE=OFF -DSD_BUILD_SHARED_GGML_LIB=ON -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON -DSD_SERVER_BUILD_FRONTEND=OFF -DCMAKE_BUILD_WITH_INSTALL_RPATH=ON -DCMAKE_INSTALL_RPATH='$ORIGIN'
+          cmake --build build --config Release --parallel "$(nproc)"
+
+      - name: Check the server's identity
+        run: |
+          ./build/bin/sd-server --version | tee version.txt
+          grep -q "commit ${GITHUB_SHA:0:7}" version.txt
+
+      - name: Pack
+        run: |
+          cp ggml/LICENSE build/bin/ggml.txt
+          cp LICENSE build/bin/stable-diffusion.cpp.txt
+          zip -j "sd-${GITHUB_REF_NAME}-bin-Linux-Ubuntu-24.04-x86_64.zip" build/bin/*
+          sha256sum sd-*.zip > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/gaia-')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" sd-*.zip SHA256SUMS --verify-tag --title "$GITHUB_REF_NAME" --notes "Gaia's patch stack on upstream $(sed -n 's/^Upstream base: `\(.*\)`$/\1/p' GAIA.md), commit ${GITHUB_SHA}. The patches are listed in GAIA.md at this tag."
