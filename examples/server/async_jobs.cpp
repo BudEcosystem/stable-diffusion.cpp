@@ -369,6 +369,7 @@ bool execute_img_gen_job(ServerRuntime& runtime,
             }
         }
     }
+    remove_generation_info_paths(runtime, results);
 
     const int num_results = results.count();
     if (job.cancel_requested.load() || num_results <= 0) {
@@ -443,6 +444,7 @@ bool execute_vid_gen_job(ServerRuntime& runtime,
             generated_audio  = generated->audio;
             generated->audio = nullptr;
             results.adopt_video(generated, runtime.ctx_params->lora_model_dir);
+            remove_generation_info_paths(runtime, results);
             output_info = json::parse(results.generation_info(0));
             if (job.vid_gen.gen_params.embed_image_metadata)
                 str_params = results.generation_info(0);

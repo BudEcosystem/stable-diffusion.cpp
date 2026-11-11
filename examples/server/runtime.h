@@ -23,6 +23,7 @@ struct SDSvrParams {
     std::string listen_ip = "127.0.0.1";
     int listen_port       = 1234;
     std::string serve_html_path;
+    bool path_free_generation_info = false;
     std::vector<std::string> model_dirs;
     bool normal_exit         = false;
     sd_log_level_t log_level = SD_LOG_INFO;
@@ -131,6 +132,7 @@ void refresh_lora_cache(ServerRuntime& rt);
 std::string get_lora_full_path(ServerRuntime& rt, const std::string& path);
 void refresh_upscaler_cache(ServerRuntime& rt);
 int64_t unix_timestamp_now_ms();
+void remove_generation_info_paths(ServerRuntime& runtime, SDImageVec& results);
 bool apply_server_adetailer(ServerRuntime& runtime,
                             const ImgGenJobRequest& request,
                             const sd_img_gen_params_t& params,

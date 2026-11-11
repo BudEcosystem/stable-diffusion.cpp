@@ -614,6 +614,7 @@ void register_sdapi_endpoints(httplib::Server& svr, ServerRuntime& rt) {
                     return;
                 }
             }
+            remove_generation_info_paths(*runtime, results);
 
             if (results.empty()) {
                 res.status = 500;

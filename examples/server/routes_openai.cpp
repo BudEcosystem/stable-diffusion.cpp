@@ -232,6 +232,7 @@ static bool execute_sync_img_gen_request(ServerRuntime& runtime,
             return false;
         }
     }
+    remove_generation_info_paths(runtime, results);
 
     if (results.empty()) {
         error_message = "generate_image returned no results";

@@ -99,6 +99,15 @@ passing them back to the C API. Core results retain the supplied loading paths.
 Files outside the directory retain `..` components; paths on another volume,
 or records without a configured LoRA directory, retain their original paths.
 
+Start `sd-server` with `--path-free-generation-info` to keep file-system paths
+out of the records it returns and embeds. Every absolute path, and every
+relative path that climbs out with `..`, under a `path` or `*_path` key (LoRAs,
+the hires upscaler model, PhotoMaker and PuLID embeddings) is written relative
+to the directory it was found in: a LoRA as the path it is requested by, a hires
+upscaler relative to `--hires-upscalers-dir`. Any other file is written as its
+file name. `models` already holds file names. Without the option, records are
+unchanged.
+
 ## Postprocessing
 
 Upscale records `upscale.upscale_factor`. ADetailer records `adetailer` and

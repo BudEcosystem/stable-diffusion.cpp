@@ -41,6 +41,69 @@ std::string generation_info_with_relative_lora_paths(const std::string& info, co
     return result.dump();
 }
 
+static bool is_path_key(const std::string& key) {
+    static const std::string suffix = "_path";
+    return key == "path" ||
+           (key.size() > suffix.size() && key.compare(key.size() - suffix.size(), suffix.size(), suffix) == 0);
+}
+
+static std::string path_without_machine(const std::string& value,
+                                        const std::vector<std::pair<std::filesystem::path, std::string>>& roots) {
+    const auto path = std::filesystem::u8path(value).lexically_normal();
+    if (path.is_relative() && (path.empty() || *path.begin() != "..")) {
+        return path.generic_u8string();
+    }
+    std::error_code error;
+    auto absolute = std::filesystem::absolute(path, error);
+    if (!error) {
+        absolute = std::filesystem::weakly_canonical(absolute, error);
+    }
+    if (!error) {
+        for (const auto& [root, name] : roots) {
+            const auto relative = absolute.lexically_relative(root);
+            if (!relative.empty() && *relative.begin() != ".." && relative != ".") {
+                return name + relative.generic_u8string();
+            }
+        }
+    }
+    return path.filename().u8string();
+}
+
+static void remove_paths(nlohmann::json& info, const std::vector<std::pair<std::filesystem::path, std::string>>& roots) {
+    if (info.is_array()) {
+        for (auto& item : info)
+            remove_paths(item, roots);
+        return;
+    }
+    if (!info.is_object())
+        return;
+    for (auto& [key, value] : info.items()) {
+        if (value.is_string() && is_path_key(key)) {
+            const auto path = value.get<std::string>();
+            if (!path.empty())
+                value = path_without_machine(path, roots);
+        } else {
+            remove_paths(value, roots);
+        }
+    }
+}
+
+std::string generation_info_without_paths(const std::string& info,
+                                          const std::vector<std::pair<std::string, std::string>>& roots) {
+    if (info.empty())
+        return info;
+    std::vector<std::pair<std::filesystem::path, std::string>> resolved;
+    for (const auto& [root, name] : roots) {
+        std::error_code error;
+        auto path = std::filesystem::weakly_canonical(std::filesystem::absolute(std::filesystem::u8path(root), error), error);
+        if (!error)
+            resolved.emplace_back(path.lexically_normal(), name);
+    }
+    auto result = nlohmann::json::parse(info);
+    remove_paths(result, resolved);
+    return result.dump();
+}
+
 std::string merge_generation_info(const std::string& source, const std::string& operation) {
     if (source.empty())
         return operation;

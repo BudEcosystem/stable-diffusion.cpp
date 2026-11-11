@@ -169,6 +169,36 @@ bool apply_server_adetailer(ServerRuntime& runtime,
     return true;
 }
 
+void remove_generation_info_paths(ServerRuntime& runtime, SDImageVec& results) {
+    if (!runtime.svr_params->path_free_generation_info) {
+        return;
+    }
+    std::vector<std::pair<std::string, std::string>> roots;
+    {
+        std::lock_guard<std::mutex> lock(*runtime.lora_mutex);
+        for (const auto& entry : *runtime.lora_cache) {
+            const auto relative = fs::u8path(entry.fullpath).lexically_relative(entry.root).generic_u8string();
+            if (relative.empty() || entry.path.size() < relative.size() ||
+                entry.path.compare(entry.path.size() - relative.size(), relative.size(), relative) != 0) {
+                continue;
+            }
+            std::pair<std::string, std::string> root = {entry.root.u8string(), entry.path.substr(0, entry.path.size() - relative.size())};
+            if (std::find(roots.begin(), roots.end(), root) == roots.end()) {
+                roots.push_back(std::move(root));
+            }
+        }
+    }
+    if (!runtime.ctx_params->lora_model_dir.empty()) {
+        roots.emplace_back(runtime.ctx_params->lora_model_dir, "");
+    }
+    if (!runtime.ctx_params->hires_upscalers_dir.empty()) {
+        roots.emplace_back(runtime.ctx_params->hires_upscalers_dir, "");
+    }
+    for (int i = 0; i < results.count(); ++i) {
+        results.set_generation_info(i, generation_info_without_paths(results.generation_info(i), roots));
+    }
+}
+
 static std::string lower_ascii(std::string value) {
     std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
         return static_cast<char>(std::tolower(c));
@@ -355,6 +385,11 @@ ArgOptions SDSvrParams::get_options() {
 
     options.bool_options = {
         {"", "--color", "colors the logging tags according to level", true, &color},
+        {"",
+         "--path-free-generation-info",
+         "keep file-system paths out of generation records: LoRAs by their path under the LoRA directory, other files by name",
+         true,
+         &path_free_generation_info},
     };
 
     auto on_help_arg = [&](int, const char**, int, bool& valid) {

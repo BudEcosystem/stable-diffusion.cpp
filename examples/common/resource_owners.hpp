@@ -218,6 +218,11 @@ public:
         return index < generation_infos_.size() ? generation_infos_[index] : empty;
     }
 
+    void set_generation_info(size_t index, std::string info) {
+        generation_infos_.resize(images_.size());
+        generation_infos_.at(index) = std::move(info);
+    }
+
     void append_generation_info(size_t index, const std::string& info, const std::string& lora_model_dir = {}) {
         generation_infos_.resize(images_.size());
         generation_infos_.at(index) = merge_generation_info(generation_infos_.at(index), generation_info_with_relative_lora_paths(info, lora_model_dir));
