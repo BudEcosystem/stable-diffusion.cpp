@@ -152,7 +152,8 @@ namespace sd::pipeline {
             models.erase("ip_adapter");
         if (!pm_params.id_images || pm_params.id_images_count <= 0)
             models.erase("photo_maker");
-        if (!pulid_params.id_embedding_path || !*pulid_params.id_embedding_path)
+        if ((!pulid_params.id_embedding_path || !*pulid_params.id_embedding_path) &&
+            (!pulid_params.id_embedding_data || pulid_params.id_embedding_size == 0))
             models.erase("pulid_weights");
     }
 

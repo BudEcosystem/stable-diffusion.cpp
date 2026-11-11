@@ -263,9 +263,11 @@ struct SDGenerationParams {
 
     std::string pm_id_images_dir;
     std::string pm_id_embed_path;
+    std::vector<uint8_t> pm_id_embed;
     float pm_style_strength = 20.f;
 
     std::string pulid_id_embedding_path;
+    std::vector<uint8_t> pulid_id_embedding;
     float pulid_id_weight = 1.0f;
 
     int upscale_repeats   = 1;

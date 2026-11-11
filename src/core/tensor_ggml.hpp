@@ -5,6 +5,8 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <istream>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <type_traits>
@@ -105,12 +107,7 @@ namespace sd {
     }
 
     template <typename T>
-    inline Tensor<T> load_tensor_from_file_as_tensor(const std::string& file_path) {
-        std::ifstream file(std::filesystem::u8path(file_path), std::ios::binary);
-        if (!file.is_open()) {
-            throw std::runtime_error("failed to open tensor file: " + file_path);
-        }
-
+    inline Tensor<T> load_tensor_from_stream_as_tensor(std::istream& file, const std::string& file_path) {
         int32_t n_dims = 0;
         int32_t length = 0;
         int32_t ttype  = 0;
@@ -140,6 +137,21 @@ namespace sd {
             throw std::runtime_error("incomplete tensor file data: " + file_path);
         }
         return tensor;
+    }
+
+    template <typename T>
+    inline Tensor<T> load_tensor_from_file_as_tensor(const std::string& file_path) {
+        std::ifstream file(std::filesystem::u8path(file_path), std::ios::binary);
+        if (!file.is_open()) {
+            throw std::runtime_error("failed to open tensor file: " + file_path);
+        }
+        return load_tensor_from_stream_as_tensor<T>(file, file_path);
+    }
+
+    template <typename T>
+    inline Tensor<T> load_tensor_from_memory_as_tensor(const uint8_t* data, size_t size) {
+        std::istringstream stream(std::string(reinterpret_cast<const char*>(data), size), std::ios::binary);
+        return load_tensor_from_stream_as_tensor<T>(stream, "<memory>");
     }
 
 }  // namespace sd

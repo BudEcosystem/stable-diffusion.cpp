@@ -582,8 +582,8 @@ void sd_img_gen_params_init(sd_img_gen_params_t* sd_img_gen_params) {
     sd_img_gen_params->qwen_image_layers   = 3;
     sd_img_gen_params->circular_x          = false;
     sd_img_gen_params->circular_y          = false;
-    sd_img_gen_params->pm_params           = {nullptr, 0, nullptr, 20.f};
-    sd_img_gen_params->pulid_params        = {nullptr, 1.0f};
+    sd_img_gen_params->pm_params           = {nullptr, 0, nullptr, 20.f, nullptr, 0};
+    sd_img_gen_params->pulid_params        = {nullptr, 1.0f, nullptr, 0};
     sd_img_gen_params->vae_tiling_params   = {false, false, 0, 0, 0.5f, 0.0f, 0.0f, nullptr};
     sd_cache_params_init(&sd_img_gen_params->cache);
     sd_hires_params_init(&sd_img_gen_params->hires);

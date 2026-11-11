@@ -2267,6 +2267,8 @@ bool SDGenerationParams::from_json_str(
     load_if_exists("ip_adapter_strength", ip_adapter_strength);
     load_if_exists("moe_boundary", moe_boundary);
     load_if_exists("vace_strength", vace_strength);
+    load_if_exists("pm_style_strength", pm_style_strength);
+    load_if_exists("pulid_id_weight", pulid_id_weight);
 
     load_if_exists("increase_ref_index", increase_ref_index);
     load_if_exists("embed_image_metadata", embed_image_metadata);
@@ -2426,7 +2428,28 @@ bool SDGenerationParams::from_json_str(
         !load_image("ip_adapter_image", 3, ip_adapter_image)) {
         return false;
     }
+    const std::pair<const char*, std::vector<uint8_t>*> embedding_fields[] = {
+        {"pm_id_embed", &pm_id_embed},
+        {"pulid_id_embedding", &pulid_id_embedding},
+    };
+    for (const auto& [key, bytes] : embedding_fields) {
+        if (!j.contains(key) || j[key].is_null()) {
+            continue;
+        }
+        if (!j[key].is_string()) {
+            LOG_ERROR("invalid %s", key);
+            return false;
+        }
+        std::string encoded  = j[key].get<std::string>();
+        const auto comma_pos = encoded.find(',');
+        *bytes               = decode_base64_bytes(comma_pos == std::string::npos ? encoded : encoded.substr(comma_pos + 1));
+        if (bytes->empty()) {
+            LOG_ERROR("invalid %s", key);
+            return false;
+        }
+    }
     if (!parse_image_array_json_field(j, "ref_images", 0, ref_images) ||
+        !parse_image_array_json_field(j, "pm_id_images", 3, pm_id_images) ||
         !parse_image_array_json_field(j, "control_frames", 3, control_frames) ||
         !parse_audio_array_json_field(j, "ref_audios", ref_audios) ||
         !parse_audio_array_json_field(j, "ref_video_audios", ref_video_audios) ||
@@ -2867,11 +2890,15 @@ sd_img_gen_params_t SDGenerationParams::to_sd_img_gen_params_t() {
         static_cast<int>(pm_id_image_views.size()),
         pm_id_embed_path.empty() ? nullptr : pm_id_embed_path.c_str(),
         pm_style_strength,
+        pm_id_embed.empty() ? nullptr : pm_id_embed.data(),
+        pm_id_embed.size(),
     };
 
     sd_pulid_params_t pulid_params = {
         pulid_id_embedding_path.empty() ? nullptr : pulid_id_embedding_path.c_str(),
         pulid_id_weight,
+        pulid_id_embedding.empty() ? nullptr : pulid_id_embedding.data(),
+        pulid_id_embedding.size(),
     };
 
     if (increase_ref_index) {

@@ -45,6 +45,14 @@ bool validate_server_img_gen_request(const ServerRuntime& runtime,
             return false;
         }
     }
+    if ((!params.pm_id_images.empty() || !params.pm_id_embed.empty()) && runtime.ctx_params->photo_maker_path.empty()) {
+        error_message = "pm_id_images and pm_id_embed require PhotoMaker weights; start the server with --photo-maker";
+        return false;
+    }
+    if (!params.pulid_id_embedding.empty() && runtime.ctx_params->pulid_weights_path.empty()) {
+        error_message = "pulid_id_embedding requires PuLID weights; start the server with --pulid-weights";
+        return false;
+    }
     if (!request.adetailer_enabled || runtime.default_gen_params->ad_model_path.empty()) {
         return true;
     }

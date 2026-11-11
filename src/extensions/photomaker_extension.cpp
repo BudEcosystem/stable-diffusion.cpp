@@ -259,7 +259,13 @@ struct PhotoMakerExtension : public GenerationExtension {
         }
 
         sd::Tensor<float> id_embeds;
-        if (pmv2 && ctx.pm_params.id_embed_path != nullptr) {
+        if (pmv2 && ctx.pm_params.id_embed_data != nullptr && ctx.pm_params.id_embed_size > 0) {
+            try {
+                id_embeds = sd::load_tensor_from_memory_as_tensor<float>(ctx.pm_params.id_embed_data, ctx.pm_params.id_embed_size);
+            } catch (const std::exception&) {
+                id_embeds = {};
+            }
+        } else if (pmv2 && ctx.pm_params.id_embed_path != nullptr) {
             try {
                 id_embeds = sd::load_tensor_from_file_as_tensor<float>(ctx.pm_params.id_embed_path);
             } catch (const std::exception&) {

@@ -119,6 +119,16 @@ at runtime. Setting `--pulid-id-weight 0` zeros out the contribution
 (useful for falsification testing: outputs should be byte-identical to
 a no-PuLID run with the same seed).
 
+## Server requests
+
+`sd-server` loads the PuLID weights at startup (`--pulid-weights`); the
+identity comes with each request. Native `/sdcpp/v1/img_gen` requests, and
+OpenAI requests through `<sd_cpp_extra_args>`, accept `pulid_id_embedding`, the
+base64 contents of a `.pulidembd` file, and `pulid_id_weight`. The embedding is
+read from memory, so no file is written. A request carrying an embedding on a
+server started without `--pulid-weights` is rejected with a parameter error.
+The identity extractor itself stays the external precompute tool above.
+
 ## Memory budget
 
 At 512x512, 4 steps (Schnell), the 20 cross-attention layers add roughly

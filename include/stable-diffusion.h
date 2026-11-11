@@ -336,11 +336,17 @@ typedef struct {
     int id_images_count;
     const char* id_embed_path;
     float style_strength;
+    // Contents of an id_embeds file, used instead of id_embed_path when set.
+    const uint8_t* id_embed_data;
+    size_t id_embed_size;
 } sd_pm_params_t;  // photo maker
 
 typedef struct {
     const char* id_embedding_path;
     float id_weight;
+    // Contents of a .pulidembd file, used instead of id_embedding_path when set.
+    const uint8_t* id_embedding_data;
+    size_t id_embedding_size;
 } sd_pulid_params_t;
 
 enum sd_cache_mode_t {

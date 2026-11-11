@@ -50,4 +50,15 @@ An ```id_embeds.bin``` file will be generated in ```input_images_dir```
 
 - All the command line parameters from Version 1 remain the same for Version 2 plus one extra pointing to a valid ```id_embeds``` file:  --pm-id-embed-path [path_to__id_embeds.bin] 
 
+## Server requests
 
+`sd-server` loads the PhotoMaker weights at startup (`--photo-maker`); the
+identity comes with each request. Native `/sdcpp/v1/img_gen` requests, and
+OpenAI requests through `<sd_cpp_extra_args>`, accept:
+
+- `pm_id_images`: an array of base64 (or data URL) ID images;
+- `pm_id_embed`: the base64 contents of a PhotoMaker v2 `id_embeds.bin`;
+- `pm_style_strength`: as `--pm-style-strength`.
+
+A request carrying ID images or embeds on a server started without
+`--photo-maker` is rejected with a parameter error.

@@ -7,15 +7,18 @@
 #include "core/util.h"
 #include "gguf.h"
 
-static sd::Tensor<float> load_pulid_id_embedding(const char* path) {
+static sd::Tensor<float> load_pulid_id_embedding(const sd_pulid_params_t& params) {
     sd::Tensor<float> empty;
+    const bool in_memory = params.id_embedding_data != nullptr && params.id_embedding_size > 0;
+    const char* path     = in_memory ? "<memory>" : params.id_embedding_path;
     if (path == nullptr || strlen(path) == 0) {
         return empty;
     }
 
     struct ggml_context* ctx_data = nullptr;
     struct gguf_init_params gp    = {/*.no_alloc =*/false, /*.ctx =*/&ctx_data};
-    struct gguf_context* gguf_ctx = gguf_init_from_file(path, gp);
+    struct gguf_context* gguf_ctx = in_memory ? gguf_init_from_buffer(params.id_embedding_data, params.id_embedding_size, gp)
+                                              : gguf_init_from_file(path, gp);
     if (gguf_ctx == nullptr || ctx_data == nullptr) {
         LOG_WARN("PuLID id-embedding: cannot read gguf '%s'", path);
         if (gguf_ctx != nullptr)
@@ -102,7 +105,7 @@ struct PuLIDExtension : public GenerationExtension {
         if (!enabled) {
             return false;
         }
-        id_embedding = load_pulid_id_embedding(ctx.pulid_params.id_embedding_path);
+        id_embedding = load_pulid_id_embedding(ctx.pulid_params);
         id_weight    = ctx.pulid_params.id_weight;
         return false;  // PuLID does not modify the conditioning
     }

@@ -162,6 +162,8 @@ namespace sd {
         }
         if (p.pulid_params.id_embedding_path && *p.pulid_params.id_embedding_path)
             info["pulid_params"] = {{"id_embedding_path", p.pulid_params.id_embedding_path}, {"id_weight", p.pulid_params.id_weight}};
+        else if (p.pulid_params.id_embedding_data && p.pulid_params.id_embedding_size > 0)
+            info["pulid_params"] = {{"id_weight", p.pulid_params.id_weight}};
         return info;
     }
 

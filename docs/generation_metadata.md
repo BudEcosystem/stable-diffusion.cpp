@@ -49,8 +49,8 @@ TaylorSeer retains the shared DBCache thresholds and limits used by the runtime.
 Image CFG at its neutral value of 1 is omitted and resolves back to 1 by default.
 
 Image strength, ControlNet/IP-Adapter strength and PhotoMaker settings are stored
-when their corresponding input images are supplied. PuLID requires an embedding
-path. Layer count is stored for layered generation; video VACE and high-noise
+when their corresponding input images are supplied. PuLID requires an embedding;
+an in-memory embedding records only `id_weight`. Layer count is stored for layered generation; video VACE and high-noise
 settings require those models. High-noise settings omit scheduler, custom sigmas,
 flow shift and timestep shifting because that pass shares the base configuration.
 Explicit nonempty argument strings are retained without rewriting their contents.
