@@ -93,6 +93,37 @@ bool validate_server_img_gen_request(const ServerRuntime& runtime,
     return std::all_of(request.adetailer_passes.begin(), request.adetailer_passes.end(), pass_valid);
 }
 
+bool apply_adetailer_request_fields(const json& fields,
+                                    const ServerRuntime& runtime,
+                                    ImgGenJobRequest& request,
+                                    std::string& error_message) {
+    if (!fields.is_object()) {
+        return true;
+    }
+    if (fields.contains("adetailer")) {
+        if (!fields["adetailer"].is_boolean()) {
+            error_message = "adetailer must be a boolean";
+            return false;
+        }
+        request.adetailer_enabled = fields["adetailer"];
+        if (request.adetailer_enabled && runtime.default_gen_params->ad_model_path.empty()) {
+            error_message = "adetailer requires a detector model; start the server with --ad-model";
+            return false;
+        }
+    }
+    const std::pair<const char*, std::string*> pass_fields[] = {
+        {"ad_prompt", &request.gen_params.ad_prompt},
+        {"ad_negative_prompt", &request.gen_params.ad_negative_prompt},
+        {"extra_ad_args", &request.gen_params.extra_ad_args},
+    };
+    for (const auto& [key, value] : pass_fields) {
+        if (fields.contains(key) && fields[key].is_string()) {
+            *value = fields[key].get<std::string>();
+        }
+    }
+    return true;
+}
+
 bool apply_server_adetailer(ServerRuntime& runtime,
                             const ImgGenJobRequest& request,
                             const sd_img_gen_params_t& params,

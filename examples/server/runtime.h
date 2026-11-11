@@ -99,6 +99,10 @@ constexpr int k_max_adetailer_steps      = 100;
 bool validate_server_img_gen_request(const ServerRuntime& runtime,
                                      const ImgGenJobRequest& request,
                                      std::string& error_message);
+bool apply_adetailer_request_fields(const json& fields,
+                                    const ServerRuntime& runtime,
+                                    ImgGenJobRequest& request,
+                                    std::string& error_message);
 
 struct VidGenJobRequest {
     SDGenerationParams gen_params;

@@ -69,6 +69,11 @@ static bool build_openai_generation_request(const httplib::Request& req,
         error_message = "invalid sd_cpp_extra_args";
         return false;
     }
+    if (!apply_adetailer_request_fields(j, runtime, request, error_message) ||
+        (!sd_cpp_extra_args_str.empty() &&
+         !apply_adetailer_request_fields(json::parse(sd_cpp_extra_args_str, nullptr, false), runtime, request, error_message))) {
+        return false;
+    }
 
     // Intentionally disable prompt-embedded LoRA tag parsing for server APIs.
     if (!request.gen_params.resolve_and_validate(IMG_GEN, "", runtime.ctx_params->hires_upscalers_dir, true)) {
@@ -228,6 +233,22 @@ static bool build_openai_edit_request(const httplib::Request& req,
 
     if (!sd_cpp_extra_args_str.empty() && !request.gen_params.from_json_str(sd_cpp_extra_args_str)) {
         error_message = "invalid sd_cpp_extra_args";
+        return false;
+    }
+
+    json adetailer_fields = json::object();
+    if (req.form.has_field("adetailer")) {
+        const std::string value       = req.form.get_field("adetailer");
+        adetailer_fields["adetailer"] = value == "true" ? json(true) : value == "false" ? json(false)
+                                                                                        : json(value);
+    }
+    for (const char* key : {"ad_prompt", "ad_negative_prompt", "extra_ad_args"}) {
+        if (req.form.has_field(key)) {
+            adetailer_fields[key] = req.form.get_field(key);
+        }
+    }
+    if (!apply_adetailer_request_fields(adetailer_fields, runtime, request, error_message) ||
+        !apply_adetailer_request_fields(extra_args, runtime, request, error_message)) {
         return false;
     }
 

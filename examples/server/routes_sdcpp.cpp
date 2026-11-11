@@ -461,6 +461,9 @@ static bool parse_img_gen_request(const json& body,
     }
     request.preview_mode     = body.value("preview", std::string("none"));
     request.preview_interval = body.value("preview_interval", 1);
+    if (!apply_adetailer_request_fields(body, runtime, request, error_message)) {
+        return false;
+    }
     // Intentionally disable prompt-embedded LoRA tag parsing for server APIs.
     if (!request.gen_params.resolve_and_validate(IMG_GEN, "", runtime.ctx_params->hires_upscalers_dir, true)) {
         error_message = "invalid generation parameters";

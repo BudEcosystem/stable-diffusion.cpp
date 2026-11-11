@@ -69,7 +69,20 @@ ADetailer can also run automatically after normal image generation:
   --extra-ad-args "confidence=0.3,denoising_strength=0.4,inpaint_width=512,inpaint_height=512"
 ```
 
-The same options can be supplied when starting `sd-server`. When `--ad-model` is set, its detector runs after OpenAI-compatible and native asynchronous image generation. SDAPI requests enable ADetailer through `alwayson_scripts`, as described below. If no object is detected, the original image is returned unchanged. RGBA output keeps its original alpha channel, including when detected regions are repaired. Detector initialization or detail-pass failures are reported as request failures.
+The same options can be supplied when starting `sd-server`. When `--ad-model` is set, its detector runs after OpenAI-compatible and native asynchronous image generation. SDAPI requests enable ADetailer through `alwayson_scripts`, as described below.
+
+### OpenAI and native requests
+
+OpenAI-compatible (`/v1/images/generations`, `/v1/images/edits`) and native
+(`/sdcpp/v1/img_gen`) requests choose detailing per request. `"adetailer": false`
+skips it for that request; `"adetailer": true` (the default when `--ad-model` is
+set) runs it. `ad_prompt`, `ad_negative_prompt` and `extra_ad_args` set the
+detail pass for that request in the same form as the startup options. Image
+edits take these as form fields, with `adetailer` written `true` or `false`; all
+of them may also be given in `<sd_cpp_extra_args>`. The detector itself is
+always the one configured with `--ad-model`: a request asking for
+`"adetailer": true` on a server started without one is rejected with a parameter
+error. If no object is detected, the original image is returned unchanged. RGBA output keeps its original alpha channel, including when detected regions are repaired. Detector initialization or detail-pass failures are reported as request failures.
 
 Server image-generation requests limit base, hires, and detail-pass dimensions to 4096 pixels per side. ADetailer step overrides are limited to 1–100; `steps=0` in `extra_ad_args` keeps inheriting the main generation steps. These limits also apply to inherited dimensions and `extra_ad_args` overrides. Requests exceeding the limits return a parameter error before generation. CLI limits are unchanged.
 
