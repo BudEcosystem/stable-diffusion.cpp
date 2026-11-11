@@ -539,6 +539,8 @@ SD_API bool sd_ctx_supports_image_generation(const sd_ctx_t* sd_ctx);
 SD_API bool sd_ctx_supports_video_generation(const sd_ctx_t* sd_ctx);
 /** Returns whether the loaded model consumes ref_images as conditioning inputs. */
 SD_API bool sd_ctx_supports_ref_image_conditioning(const sd_ctx_t* sd_ctx);
+/** Returns whether the loaded model decodes images with an alpha channel (RGBA). */
+SD_API bool sd_ctx_supports_alpha_output(const sd_ctx_t* sd_ctx);
 
 // ControlNet hot-swap APIs are not safe to call while generation is in flight.
 SD_API bool sd_ctx_load_control_net(sd_ctx_t* sd_ctx, const char* path);

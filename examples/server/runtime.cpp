@@ -93,6 +93,27 @@ bool validate_server_img_gen_request(const ServerRuntime& runtime,
     return std::all_of(request.adetailer_passes.begin(), request.adetailer_passes.end(), pass_valid);
 }
 
+bool apply_background_request_field(const json& fields,
+                                    const ServerRuntime& runtime,
+                                    const ImgGenJobRequest& request,
+                                    std::string& error_message) {
+    // Only "transparent" asks for something; "auto" and "opaque" keep the model's own output.
+    if (!fields.is_object() || !fields.contains("background") || fields["background"] != "transparent") {
+        return true;
+    }
+    if (!sd_ctx_supports_alpha_output(runtime.sd_ctx)) {
+        const char* family = sd_get_model_version_name(runtime.sd_ctx);
+        error_message      = std::string("background \"transparent\" is not supported by ") +
+                             (family ? family : "the loaded model") + ": its decoder outputs no alpha channel";
+        return false;
+    }
+    if (request.output_format == "jpeg") {
+        error_message = "background \"transparent\" requires output_format png or webp";
+        return false;
+    }
+    return true;
+}
+
 bool apply_adetailer_request_fields(const json& fields,
                                     const ServerRuntime& runtime,
                                     ImgGenJobRequest& request,

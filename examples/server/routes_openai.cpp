@@ -69,7 +69,8 @@ static bool build_openai_generation_request(const httplib::Request& req,
         error_message = "invalid sd_cpp_extra_args";
         return false;
     }
-    if (!apply_adetailer_request_fields(j, runtime, request, error_message) ||
+    if (!apply_background_request_field(j, runtime, request, error_message) ||
+        !apply_adetailer_request_fields(j, runtime, request, error_message) ||
         (!sd_cpp_extra_args_str.empty() &&
          !apply_adetailer_request_fields(json::parse(sd_cpp_extra_args_str, nullptr, false), runtime, request, error_message))) {
         return false;
@@ -233,6 +234,11 @@ static bool build_openai_edit_request(const httplib::Request& req,
 
     if (!sd_cpp_extra_args_str.empty() && !request.gen_params.from_json_str(sd_cpp_extra_args_str)) {
         error_message = "invalid sd_cpp_extra_args";
+        return false;
+    }
+
+    if (req.form.has_field("background") &&
+        !apply_background_request_field({{"background", req.form.get_field("background")}}, runtime, request, error_message)) {
         return false;
     }
 

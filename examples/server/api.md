@@ -461,6 +461,7 @@ Currently supported top-level request fields:
 | `size` | `string` | Format `WIDTHxHEIGHT` |
 | `output_format` | `string` | `png`, `jpeg`, or `webp` |
 | `output_compression` | `integer` | Range is clamped to `0..100` |
+| `background` | `string` | `transparent` asks for alpha; see Output Options |
 
 Native extension fields:
 
@@ -489,6 +490,7 @@ Currently supported multipart form fields:
 | `size` | `string` | Format `WIDTHxHEIGHT` |
 | `output_format` | `string` | `png` or `jpeg` |
 | `output_compression` | `integer` | Range is clamped to `0..100` |
+| `background` | `string` | `transparent` asks for alpha; see Output Options |
 
 Native extension fields:
 
@@ -537,6 +539,16 @@ Response fields:
 
 - `output_format`
 - `output_compression`
+- `background`
+
+`background: "transparent"` (also accepted by `POST /sdcpp/v1/img_gen`) asks
+for images with an alpha channel. It is served when the loaded family decodes
+RGBA (Qwen Image Layered, Qwen Image 2.1 and Ming-Image) and the output format
+is `png` or `webp`. For any other family the request is rejected with a
+parameter error naming the family; with `jpeg` output it is rejected because
+JPEG has no alpha. These families decide transparency from the prompt (see
+[Qwen Image 2.1](../../docs/qwen_image_2.1.md#alpha-channel)). `auto` and
+`opaque` leave the output as the model produces it.
 
 ### Notes
 

@@ -780,6 +780,13 @@ SD_API bool sd_ctx_supports_ref_image_conditioning(const sd_ctx_t* sd_ctx) {
     return sd_version_supports_ref_image_conditioning(version, sd_ctx->sd->get_default_ref_image_preset(version) != "default");
 }
 
+SD_API bool sd_ctx_supports_alpha_output(const sd_ctx_t* sd_ctx) {
+    if (sd_ctx == nullptr || sd_ctx->sd == nullptr) {
+        return false;
+    }
+    return sd_ctx->sd->get_image_channels() == 4;
+}
+
 SD_API bool sd_ctx_load_control_net(sd_ctx_t* sd_ctx, const char* path) {
     if (sd_ctx == nullptr || sd_ctx->sd == nullptr || path == nullptr) {
         return false;

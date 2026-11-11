@@ -461,7 +461,8 @@ static bool parse_img_gen_request(const json& body,
     }
     request.preview_mode     = body.value("preview", std::string("none"));
     request.preview_interval = body.value("preview_interval", 1);
-    if (!apply_adetailer_request_fields(body, runtime, request, error_message)) {
+    if (!apply_background_request_field(body, runtime, request, error_message) ||
+        !apply_adetailer_request_fields(body, runtime, request, error_message)) {
         return false;
     }
     // Intentionally disable prompt-embedded LoRA tag parsing for server APIs.
