@@ -4,6 +4,7 @@
 #include <cmath>
 #include <filesystem>
 #include <limits>
+#include <random>
 
 #include "async_jobs.h"
 #include "common/common.h"
@@ -502,6 +503,89 @@ static bool parse_vid_gen_request(const json& body,
     return true;
 }
 
+static bool parse_vid_upscale_request(const json& body,
+                                      ServerRuntime& runtime,
+                                      VidUpscaleJobRequest& request,
+                                      std::string& error_message) {
+    if (runtime.svr_params->vid_upscale_model_path.empty()) {
+        error_message = "no video upscaler model is available; start the server with --vid-upscale-model and --vid-upscale-vae";
+        return false;
+    }
+    for (const char* key : {"upscale_factor", "fps", "seed", "window_size", "temporal_chunk_size", "output_compression"}) {
+        if (body.contains(key) && !body[key].is_number_integer()) {
+            error_message = std::string(key) + " must be an integer";
+            return false;
+        }
+    }
+    request.upscale_factor      = body.value("upscale_factor", 0);
+    request.fps                 = body.value("fps", runtime.default_gen_params->fps);
+    request.seed                = body.value("seed", runtime.default_gen_params->seed);
+    request.window_size         = body.value("window_size", request.window_size);
+    request.temporal_chunk_size = body.value("temporal_chunk_size", request.temporal_chunk_size);
+    if (request.upscale_factor < 1) {
+        error_message = "upscale_factor is required and must be a positive integer";
+        return false;
+    }
+    if (request.fps < 1) {
+        error_message = "fps must be positive";
+        return false;
+    }
+    if (request.window_size < 2) {
+        error_message = "window_size must be at least 2";
+        return false;
+    }
+    if (request.temporal_chunk_size < 1 || (request.temporal_chunk_size - 1) % 4 != 0) {
+        error_message = "temporal_chunk_size must be 1 or 4n+1";
+        return false;
+    }
+    if (request.seed < 0) {
+        request.seed = std::random_device{}();
+    }
+
+    const bool single_image = body.contains("image");
+    if (single_image == body.contains("frames")) {
+        error_message = "exactly one of image or frames is required";
+        return false;
+    }
+    const json encoded = single_image ? json::array({body["image"]}) : body["frames"];
+    if (!encoded.is_array() || encoded.empty()) {
+        error_message = "frames must be a nonempty array of images";
+        return false;
+    }
+    for (const auto& item : encoded) {
+        SDImageOwner frame;
+        if (!item.is_string() || !decode_base64_image(item.get<std::string>(), 3, 0, 0, frame) || frame.get().data == nullptr) {
+            error_message = "frame " + std::to_string(request.frames.size()) + " could not be read";
+            return false;
+        }
+        const sd_image_t& first = request.frames.empty() ? frame.get() : request.frames.front().get();
+        if (frame.get().width != first.width || frame.get().height != first.height) {
+            error_message = "all frames must have the same dimensions";
+            return false;
+        }
+        request.frames.push_back(std::move(frame));
+    }
+    if (!valid_upscale_dimensions(request.frames.front().get(), request.upscale_factor, 1)) {
+        error_message = "upscaled dimensions must not exceed 8192 x 8192";
+        return false;
+    }
+
+    request.output_format      = normalize_output_format(body.value("output_format", std::string(single_image ? "png" : "webm")));
+    request.output_compression = std::clamp(body.value("output_compression", 100), 0, 100);
+    if (request.output_format == "png" || request.output_format == "jpeg") {
+        if (request.frames.size() != 1) {
+            error_message = "output_format " + request.output_format + " takes a single frame; use a video format for several";
+            return false;
+        }
+        return true;
+    }
+    VidGenJobRequest video_output;
+    if (!assign_output_options(video_output, request.output_format, request.output_compression, error_message)) {
+        return false;
+    }
+    return true;
+}
+
 void register_sdcpp_api_endpoints(httplib::Server& svr, ServerRuntime& rt) {
     ServerRuntime* runtime = &rt;
     RuntimeRoutes routes(svr, rt);
@@ -768,6 +852,67 @@ void register_sdcpp_api_endpoints(httplib::Server& svr, ServerRuntime& rt) {
             job->status                             = AsyncJobStatus::Queued;
             job->created_at                         = unix_timestamp_now_ms();
             job->vid_gen                            = std::move(request);
+
+            {
+                std::lock_guard<std::mutex> lock(manager.mutex);
+                purge_expired_jobs(manager);
+                if (count_pending_jobs(manager) >= manager.max_pending_jobs) {
+                    res.status = 429;
+                    res.set_content(R"({"error":"job queue is full"})", "application/json");
+                    return;
+                }
+                job->id               = make_async_job_id(manager);
+                manager.jobs[job->id] = job;
+                manager.queue.push_back(job->id);
+            }
+
+            manager.cv.notify_one();
+
+            json out;
+            out["id"]       = job->id;
+            out["kind"]     = async_job_kind_name(job->kind);
+            out["status"]   = async_job_status_name(job->status);
+            out["created"]  = job->created_at;
+            out["poll_url"] = "/sdcpp/v1/jobs/" + job->id;
+
+            res.status = 202;
+            res.set_content(out.dump(), "application/json");
+        } catch (const json::parse_error& e) {
+            res.status = 400;
+            res.set_content(json({{"error", "invalid json"}, {"message", e.what()}}).dump(), "application/json");
+        } catch (const std::exception& e) {
+            res.status = 500;
+            res.set_content(json({{"error", "server_error"}, {"message", e.what()}}).dump(), "application/json");
+        }
+    });
+
+    routes.post("/sdcpp/v1/vid_upscale", [runtime](const httplib::Request& req, httplib::Response& res) {
+        try {
+            if (req.body.empty()) {
+                res.status = 400;
+                res.set_content(R"({"error":"empty body"})", "application/json");
+                return;
+            }
+            json body = json::parse(req.body);
+            if (!body.is_object()) {
+                res.status = 400;
+                res.set_content(R"({"error":"body must be an object"})", "application/json");
+                return;
+            }
+            VidUpscaleJobRequest request;
+            std::string error_message;
+            if (!parse_vid_upscale_request(body, *runtime, request, error_message)) {
+                res.status = 400;
+                res.set_content(json({{"error", error_message}}).dump(), "application/json");
+                return;
+            }
+
+            AsyncJobManager& manager                = *runtime->async_job_manager;
+            std::shared_ptr<AsyncGenerationJob> job = std::make_shared<AsyncGenerationJob>();
+            job->kind                               = AsyncJobKind::VidUpscale;
+            job->status                             = AsyncJobStatus::Queued;
+            job->created_at                         = unix_timestamp_now_ms();
+            job->vid_upscale                        = std::move(request);
 
             {
                 std::lock_guard<std::mutex> lock(manager.mutex);

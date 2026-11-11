@@ -344,5 +344,14 @@ struct SDGenerationParams {
     std::string to_string() const;
 };
 
+// Upscales `params.frames` with a RelayVSR or SeedVR2 checkpoint pair, using the
+// thread, backend, flash-attention and direct-convolution settings of `ctx_params`.
+bool run_video_upscale(SDContextParams& ctx_params,
+                       const std::string& diffusion_model_path,
+                       const std::string& vae_path,
+                       int upscale_factor,
+                       const sd_video_upscale_params_t& params,
+                       sd_video_generation_result_t** result_out);
+
 std::string version_string();
 #endif  // __EXAMPLES_COMMON_COMMON_H__

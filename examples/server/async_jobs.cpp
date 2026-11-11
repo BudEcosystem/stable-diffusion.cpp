@@ -155,6 +155,8 @@ const char* async_job_kind_name(AsyncJobKind kind) {
             return "img_gen";
         case AsyncJobKind::VidGen:
             return "vid_gen";
+        case AsyncJobKind::VidUpscale:
+            return "vid_upscale";
         default:
             return "img_gen";
     }
@@ -288,9 +290,14 @@ json make_async_job_json(const AsyncJobManager& manager, const AsyncGenerationJo
     }
 
     if (job.status == AsyncJobStatus::Completed) {
-        if (job.kind == AsyncJobKind::VidGen) {
+        if (job.kind == AsyncJobKind::VidUpscale && !job.result_images_b64.empty()) {
             result["result"] = {
-                {"output_format", job.vid_gen.output_format},
+                {"output_format", job.vid_upscale.output_format},
+                {"images", json::array({{{"index", 0}, {"b64_json", job.result_images_b64[0]}, {"generation_info", job.result_generation_info}}})},
+            };
+        } else if (job.kind == AsyncJobKind::VidGen || job.kind == AsyncJobKind::VidUpscale) {
+            result["result"] = {
+                {"output_format", job.kind == AsyncJobKind::VidGen ? job.vid_gen.output_format : job.vid_upscale.output_format},
                 {"mime_type", job.result_media_mime_type},
                 {"fps", job.result_fps},
                 {"frame_count", job.result_frame_count},
@@ -478,6 +485,97 @@ bool execute_vid_gen_job(ServerRuntime& runtime,
     return true;
 }
 
+bool execute_vid_upscale_job(ServerRuntime& runtime,
+                             AsyncGenerationJob& job,
+                             std::vector<std::string>& output_images,
+                             std::string& output_media_b64,
+                             std::string& output_media_mime_type,
+                             int& output_frame_count,
+                             int& output_fps,
+                             json& output_info,
+                             std::string& error_message) {
+    VidUpscaleJobRequest& request = job.vid_upscale;
+    std::vector<sd_image_t> frames;
+    for (const auto& frame : request.frames) {
+        frames.push_back(frame.get());
+    }
+    sd_video_upscale_params_t params;
+    sd_video_upscale_params_init(&params);
+    params.frames              = frames.data();
+    params.frame_count         = static_cast<int>(frames.size());
+    params.fps                 = request.fps;
+    params.window_size         = request.window_size;
+    params.temporal_chunk_size = request.temporal_chunk_size;
+    params.seed                = request.seed;
+
+    SDImageVec results;
+    {
+        // One device: an upscale must not run while a generation is using it.
+        std::lock_guard<std::mutex> lock(*runtime.sd_ctx_mutex);
+        if (job.cancel_requested.load()) {
+            return false;
+        }
+        update_job_progress(job, "upscaling", "video", -1, 0, params.frame_count, "frames");
+        sd_video_generation_result_t* upscaled = nullptr;
+        if (!run_video_upscale(*runtime.ctx_params,
+                               runtime.svr_params->vid_upscale_model_path,
+                               runtime.svr_params->vid_upscale_vae_path,
+                               request.upscale_factor,
+                               params,
+                               &upscaled) ||
+            upscaled == nullptr) {
+            free_sd_video_generation_result(upscaled);
+            error_message = "video upscale failed";
+            return false;
+        }
+        output_fps = upscaled->fps > 0 ? upscaled->fps : request.fps;
+        results.adopt_video(upscaled);
+    }
+    remove_generation_info_paths(runtime, results);
+
+    const int num_results = results.count();
+    if (job.cancel_requested.load() || num_results <= 0) {
+        error_message = "video upscale returned no frames";
+        return false;
+    }
+    output_info = results.generation_info(0).empty() ? json(nullptr) : json::parse(results.generation_info(0));
+
+    if (request.output_format == "png" || request.output_format == "jpeg") {
+        update_job_progress(job, "encoding", "image");
+        auto image_bytes = encode_image_to_vector(request.output_format == "jpeg" ? EncodedImageFormat::JPEG : EncodedImageFormat::PNG,
+                                                  results[0].data,
+                                                  results[0].width,
+                                                  results[0].height,
+                                                  results[0].channel,
+                                                  results.generation_info(0),
+                                                  request.output_compression);
+        if (image_bytes.empty()) {
+            error_message = "failed to encode upscaled image";
+            return false;
+        }
+        output_images.push_back(base64_encode(image_bytes));
+        output_frame_count = 1;
+        return true;
+    }
+
+    update_job_progress(job, "encoding", "video");
+    std::vector<uint8_t> video_bytes = create_video_from_sd_images_to_vector(request.output_format,
+                                                                             results.data(),
+                                                                             num_results,
+                                                                             output_fps,
+                                                                             request.output_compression,
+                                                                             nullptr,
+                                                                             results.generation_info(0));
+    if (video_bytes.empty()) {
+        error_message = "failed to encode upscaled video container";
+        return false;
+    }
+    output_media_b64       = base64_encode(video_bytes);
+    output_media_mime_type = video_mime_type(request.output_format);
+    output_frame_count     = num_results;
+    return true;
+}
+
 void async_job_worker(ServerRuntime& runtime) {
     AsyncJobManager& manager = *runtime.async_job_manager;
 
@@ -530,6 +628,16 @@ void async_job_worker(ServerRuntime& runtime) {
                                      output_fps,
                                      output_info,
                                      error_message);
+        } else if (job->kind == AsyncJobKind::VidUpscale) {
+            ok = execute_vid_upscale_job(runtime,
+                                         *job,
+                                         output_images,
+                                         output_media_b64,
+                                         output_media_mime_type,
+                                         output_frame_count,
+                                         output_fps,
+                                         output_info,
+                                         error_message);
         } else {
             error_message = "unsupported job kind";
         }

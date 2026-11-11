@@ -9,6 +9,7 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <memory>
 #include <regex>
 #include <sstream>
 #include <stdexcept>
@@ -2847,6 +2848,39 @@ bool SDGenerationParams::resolve_and_validate(SDMode mode,
         return false;
     }
     return true;
+}
+
+bool run_video_upscale(SDContextParams& ctx_params,
+                       const std::string& diffusion_model_path,
+                       const std::string& vae_path,
+                       int upscale_factor,
+                       const sd_video_upscale_params_t& params,
+                       sd_video_generation_result_t** result_out) {
+    ctx_params.prepare_backend_assignments();
+    sd_video_upscaler_ctx_params_t ctx;
+    sd_video_upscaler_ctx_params_init(&ctx);
+    ctx.diffusion_model_path     = diffusion_model_path.c_str();
+    ctx.vae_path                 = vae_path.c_str();
+    ctx.upscale_factor           = upscale_factor;
+    ctx.n_threads                = ctx_params.n_threads;
+    ctx.backend                  = ctx_params.effective_backend.c_str();
+    ctx.params_backend           = ctx_params.effective_params_backend.c_str();
+    ctx.flash_attn_mode          = ctx_params.flash_attn_mode.c_str();
+    std::string conv_direct_mode = ctx_params.conv_direct_mode;
+    if (conv_direct_mode.empty()) {
+        conv_direct_mode = "auto";
+        if (ctx_params.diffusion_conv_direct)
+            conv_direct_mode += ",diffusion=on";
+        if (ctx_params.vae_conv_direct)
+            conv_direct_mode += ",vae=on";
+    }
+    ctx.conv_direct_mode = conv_direct_mode.c_str();
+    std::unique_ptr<video_upscaler_ctx_t, decltype(&free_video_upscaler_ctx)> upscaler(
+        new_video_upscaler_ctx(&ctx),
+        free_video_upscaler_ctx);
+    if (!upscaler)
+        return false;
+    return upscale_video(upscaler.get(), &params, result_out);
 }
 
 sd_img_gen_params_t SDGenerationParams::to_sd_img_gen_params_t() {

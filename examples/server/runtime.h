@@ -23,6 +23,8 @@ struct SDSvrParams {
     std::string listen_ip = "127.0.0.1";
     int listen_port       = 1234;
     std::string serve_html_path;
+    std::string vid_upscale_model_path;
+    std::string vid_upscale_vae_path;
     bool path_free_generation_info = false;
     std::vector<std::string> model_dirs;
     bool normal_exit         = false;
@@ -118,6 +120,17 @@ struct VidGenJobRequest {
     sd_vid_gen_params_t to_sd_vid_gen_params_t() {
         return gen_params.to_sd_vid_gen_params_t();
     }
+};
+
+struct VidUpscaleJobRequest {
+    std::vector<SDImageOwner> frames;
+    int upscale_factor        = 0;
+    int fps                   = 16;
+    int64_t seed              = 42;
+    int window_size           = 16;
+    int temporal_chunk_size   = 5;
+    std::string output_format = "webm";
+    int output_compression    = 100;
 };
 
 std::string base64_encode(const std::vector<uint8_t>& bytes);

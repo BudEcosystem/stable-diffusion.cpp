@@ -35,6 +35,14 @@ For a single image, replace `--input-frames input_frames` with `-i input.png`
 and use `-o output.png` (or JPEG/WebP). No FPS setting is needed for an image.
 `-i` / `--init-img` and `--input-frames` are mutually exclusive.
 
+## Server
+
+`sd-server --vid-upscale-model <diffusion model> --vid-upscale-vae <vae>` serves
+the same upscale as a job through `POST /sdcpp/v1/vid_upscale`, taking frames
+(or one image) as base64 in the request; see
+[the server API](../examples/server/api.md). The other settings below apply as
+request fields.
+
 ## Settings and limits
 
 - `--upscale-factor` is required. Use 2 or 4 with the corresponding weights.

@@ -684,7 +684,6 @@ int main(int argc, const char* argv[]) {
             LOG_ERROR("vid_upscale requires exactly one input: -i/--init-img or --input-frames");
             return 1;
         }
-        ctx_params.prepare_backend_assignments();
         if (ctx_params.diffusion_model_path.empty() || ctx_params.vae_path.empty() || gen_params.fps <= 0) {
             LOG_ERROR("vid_upscale requires --diffusion-model, --vae and positive --fps");
             return 1;
@@ -705,29 +704,6 @@ int main(int argc, const char* argv[]) {
         std::vector<sd_image_t> frames;
         for (const auto& frame : owned_frames)
             frames.push_back(frame.get());
-        sd_video_upscaler_ctx_params_t params;
-        sd_video_upscaler_ctx_params_init(&params);
-        params.diffusion_model_path  = ctx_params.diffusion_model_path.c_str();
-        params.vae_path              = ctx_params.vae_path.c_str();
-        params.upscale_factor        = cli_params.video_upscale_factor;
-        params.n_threads             = ctx_params.n_threads;
-        params.backend               = ctx_params.effective_backend.c_str();
-        params.params_backend        = ctx_params.effective_params_backend.c_str();
-        params.flash_attn_mode       = ctx_params.flash_attn_mode.c_str();
-        std::string conv_direct_mode = ctx_params.conv_direct_mode;
-        if (conv_direct_mode.empty()) {
-            conv_direct_mode = "auto";
-            if (ctx_params.diffusion_conv_direct)
-                conv_direct_mode += ",diffusion=on";
-            if (ctx_params.vae_conv_direct)
-                conv_direct_mode += ",vae=on";
-        }
-        params.conv_direct_mode = conv_direct_mode.c_str();
-        std::unique_ptr<video_upscaler_ctx_t, decltype(&free_video_upscaler_ctx)> upscaler(
-            new_video_upscaler_ctx(&params),
-            free_video_upscaler_ctx);
-        if (!upscaler)
-            return 1;
         sd_video_generation_result_t* output = nullptr;
         sd_video_upscale_params_t upscale_params;
         sd_video_upscale_params_init(&upscale_params);
@@ -737,7 +713,12 @@ int main(int argc, const char* argv[]) {
         upscale_params.window_size         = cli_params.vsr_window_size;
         upscale_params.temporal_chunk_size = cli_params.vsr_temporal_chunk_size;
         upscale_params.seed                = gen_params.seed;
-        if (!upscale_video(upscaler.get(), &upscale_params, &output))
+        if (!run_video_upscale(ctx_params,
+                               ctx_params.diffusion_model_path,
+                               ctx_params.vae_path,
+                               cli_params.video_upscale_factor,
+                               upscale_params,
+                               &output))
             return 1;
         std::string video_info = output->generation_info;
         SDImageVec results;

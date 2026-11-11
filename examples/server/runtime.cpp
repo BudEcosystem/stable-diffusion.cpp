@@ -437,6 +437,8 @@ ArgOptions SDSvrParams::get_options() {
     options.string_options = {
         {"-l", "--listen-ip", "server listen ip (default: 127.0.0.1)", 0, &listen_ip},
         {"", "--serve-html-path", "path to HTML file to serve at root (optional)", 0, &serve_html_path},
+        {"", "--vid-upscale-model", "RelayVSR or SeedVR2 diffusion model served by /sdcpp/v1/vid_upscale (optional)", 0, &vid_upscale_model_path},
+        {"", "--vid-upscale-vae", "decoder model matching --vid-upscale-model", 0, &vid_upscale_vae_path},
     };
 
     options.int_options = {
@@ -486,6 +488,17 @@ bool SDSvrParams::validate() {
     if (!serve_html_path.empty() && !fs::exists(fs::u8path(serve_html_path))) {
         LOG_ERROR("error: serve_html_path file does not exist: %s", serve_html_path.c_str());
         return false;
+    }
+
+    if (vid_upscale_model_path.empty() != vid_upscale_vae_path.empty()) {
+        LOG_ERROR("error: --vid-upscale-model and --vid-upscale-vae must be given together");
+        return false;
+    }
+    for (const auto* path : {&vid_upscale_model_path, &vid_upscale_vae_path}) {
+        if (!path->empty() && !fs::exists(fs::u8path(*path))) {
+            LOG_ERROR("error: video upscale model file does not exist: %s", path->c_str());
+            return false;
+        }
     }
     return true;
 }

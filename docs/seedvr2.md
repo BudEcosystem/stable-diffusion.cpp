@@ -46,6 +46,14 @@ Frames are read in filename order. Use either `-i` or `--input-frames`, not both
 Video outputs support AVI, WebM, and animated WebP. To save individual frames,
 use an output pattern such as `-o restored/%06d.png`.
 
+## Server
+
+`sd-server --vid-upscale-model <diffusion model> --vid-upscale-vae <vae>` serves
+the same upscale as a job through `POST /sdcpp/v1/vid_upscale`, taking frames
+(or one image) as base64 in the request; see
+[the server API](../examples/server/api.md). The other settings below apply as
+request fields.
+
 ## Settings and limits
 
 - `--upscale-factor` is required and must be a positive integer. Output width

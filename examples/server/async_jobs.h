@@ -17,6 +17,7 @@
 enum class AsyncJobKind {
     ImgGen,
     VidGen,
+    VidUpscale,
 };
 
 enum class AsyncJobStatus {
@@ -51,6 +52,7 @@ struct AsyncGenerationJob {
     int64_t completed_at = 0;
     ImgGenJobRequest img_gen;
     VidGenJobRequest vid_gen;
+    VidUpscaleJobRequest vid_upscale;
     std::vector<std::string> result_images_b64;
     json result_generation_info;
     std::string result_media_b64;
@@ -99,4 +101,13 @@ bool execute_vid_gen_job(ServerRuntime& runtime,
                          int& output_fps,
                          json& output_info,
                          std::string& error_message);
+bool execute_vid_upscale_job(ServerRuntime& runtime,
+                             AsyncGenerationJob& job,
+                             std::vector<std::string>& output_images,
+                             std::string& output_media_b64,
+                             std::string& output_media_mime_type,
+                             int& output_frame_count,
+                             int& output_fps,
+                             json& output_info,
+                             std::string& error_message);
 void async_job_worker(ServerRuntime& runtime);

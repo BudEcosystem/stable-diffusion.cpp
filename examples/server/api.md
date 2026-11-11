@@ -58,6 +58,7 @@ Current endpoints include:
 - `POST /sdcpp/v1/jobs/{id}/cancel`
 - `POST /sdcpp/v1/vid_gen`
 - `POST /sdcpp/v1/upscale`
+- `POST /sdcpp/v1/vid_upscale`
 
 ## Model management
 
@@ -1152,6 +1153,47 @@ Notes:
 - The upscaler models are three-channel; alpha is not preserved.
 - The request holds the generation context lock, so an upscale and a
   generation never run on the device at the same time.
+
+#### `POST /sdcpp/v1/vid_upscale`
+
+Upscales a video, or a single image, with RelayVSR or SeedVR2. This is the
+HTTP equivalent of `sd-cli -M vid_upscale` and shares its code. The checkpoint
+pair is loaded per job from `--vid-upscale-model` and `--vid-upscale-vae` given
+at startup; no diffusion model needs to be loaded. The request creates a job
+like `vid_gen` and answers `202 Accepted` with the same body (`kind` is
+`vid_upscale`); poll `GET /sdcpp/v1/jobs/{id}` for the result.
+
+Request fields:
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `frames` | `array<string>` | Base64 or data URL frames, in order, all the same size; or use `image` |
+| `image` | `string` | A single base64 or data URL image instead of `frames` |
+| `upscale_factor` | `integer` | Required. Output size is the input size times this factor (RelayVSR: 2 or 4, matching its checkpoints) |
+| `fps` | `integer` | Frame rate of the input video (default: the server's `--fps`) |
+| `seed` | `integer` | Negative selects a random seed (default: the server's `--seed`) |
+| `window_size` | `integer` | RelayVSR reference window including both endpoints, at least 2 (default `16`) |
+| `temporal_chunk_size` | `integer` | SeedVR2 frames per independent chunk, 1 or 4n+1 (default `5`) |
+| `output_format` | `string` | A video format as for `vid_gen` (default `webm`), or `png`/`jpeg` for a single frame (the default with `image`) |
+| `output_compression` | `integer` | Range is clamped to `0..100` |
+
+The completed job's `result` has the `vid_gen` shape (`output_format`,
+`mime_type`, `fps`, `frame_count`, `b64_json`, `generation_info`), or for
+`png`/`jpeg` the `img_gen` shape with one entry in `images`.
+
+Typical status codes:
+
+- `202 Accepted`
+- `400 Bad Request` (no video upscaler configured, invalid or unreadable frames, frames of different sizes, invalid settings, or output dimensions above 8192 pixels on either axis)
+- `429 Too Many Requests`
+
+Notes:
+
+- The job holds the generation context lock while upscaling, so it never runs
+  on the device at the same time as a generation.
+- A queued job can be cancelled; a running upscale finishes before the
+  cancellation is recorded.
+- Audio is not part of the request or the result.
 
 #### `POST /sdcpp/v1/jobs/{id}/cancel`
 
