@@ -233,7 +233,8 @@ jobs:
           path: sd-*.zip
           retention-days: 7
 
-  cpu-arm64-v8.0:
+  cpu-arm64-v8_0:
+    name: cpu-arm64-v8.0
     # The aarch64 processor zip, the counterpart of the x86_64 one: every
     # ggml processor variant of a Linux aarch64 build, the loader choosing the
     # best the processor has at run time, down to armv8.0_1, the ARMv8.0
@@ -444,7 +445,7 @@ jobs:
   release:
     # only a gaia-* tag publishes, and only once every zip above has built
     if: startsWith(github.ref, 'refs/tags/gaia-')
-    needs: [linux-x86_64, cuda-x64, cuda-arm64, cpu-arm64-v8.0, vulkan-x64, rocm-x64]
+    needs: [linux-x86_64, cuda-x64, cuda-arm64, cpu-arm64-v8_0, vulkan-x64, rocm-x64]
     runs-on: ubuntu-24.04
 
     steps:
