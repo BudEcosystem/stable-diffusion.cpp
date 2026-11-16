@@ -1,9 +1,30 @@
-# Gaia's release of a gaia-* tag (see GAIA.md, "Releases"): the Linux x86_64
-# processor zip Gaia's sd.engine fetches, built from the tag's own commit with
-# upstream's ubuntu-latest-cmake job's options, so its files carry the same
-# names as upstream's own release zip. A push to the gaia branch builds and
-# checks it; only a pushed gaia-* tag publishes it. Upstream's build.yml is
-# left exactly as upstream has it.
+# Gaia's release of a gaia-* tag (see GAIA.md, "Releases" and RELEASES.md):
+# every zip Gaia's sd.engine fetches, each built from the tag's own commit by
+# GitHub's hosted runners, so no device ever compiles stable-diffusion.cpp.
+#
+#   job               asset (sd-<tag>-bin-Linux-Ubuntu-24.04-...)   what it serves
+#   linux-x86_64      x86_64.zip              x86_64 processor (every x86_64 class)
+#   cuda-x64          x86_64-cuda-12.8.zip    NVIDIA on x86_64, compute 7.5 and up
+#   cuda-arm64        aarch64-cuda-13.4.zip   NVIDIA on aarch64 (sbsa), compute 7.5 and up
+#   cpu-arm64-v8.0    aarch64.zip             aarch64 processor, ARMv8.0 floor
+#   vulkan-x64        x86_64-vulkan.zip       any Vulkan GPU on x86_64
+#   rocm-x64          x86_64-rocm-10.0.zip    AMD GPUs on x86_64 through HIP
+#
+# Every zip has the processor zip's layout: the files of build/bin, flat
+# (`zip -j`), built with upstream's ubuntu-latest-cmake options (shared
+# libraries, ggml's backends loaded at run time, every processor variant), the
+# web frontend off as in every Gaia build. A GPU zip adds its backend library
+# (libggml-cuda.so, libggml-vulkan.so, libggml-hip.so) beside the processor
+# variants. The GPU toolkits' own runtimes (cudart, cuBLAS, HIP, hipBLAS,
+# rocBLAS, the Vulkan loader) are not in the zips: Gaia lays them from its
+# runtime recipes or reads them from the machine (RELEASES.md names each).
+#
+# Every job runs on Ubuntu 24.04 (a runner or its container), so every zip
+# asks the same glibc as the processor zip. A push to the gaia branch builds
+# and checks every zip; only a pushed gaia-* tag publishes them, after all of
+# them built, as the tag's release, with SHA256SUMS and a body listing each
+# zip's size and sha256. Upstream's build.yml is left exactly as upstream has
+# it.
 name: Gaia release
 
 on:
@@ -15,6 +36,29 @@ on:
 
 permissions:
   contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# bash in every job: a container's default shell is dash, which lacks the
+# substring expansion the identity checks use
+defaults:
+  run:
+    shell: bash
+
+env:
+  # upstream's ubuntu-latest-cmake options, the web frontend off
+  SD_RELEASE_OPTIONS: >-
+    -DCMAKE_BUILD_TYPE=Release
+    -DSD_BUILD_SHARED_LIBS=ON
+    -DGGML_NATIVE=OFF
+    -DSD_BUILD_SHARED_GGML_LIB=ON
+    -DGGML_BACKEND_DL=ON
+    -DGGML_CPU_ALL_VARIANTS=ON
+    -DSD_SERVER_BUILD_FRONTEND=OFF
+    -DCMAKE_BUILD_WITH_INSTALL_RPATH=ON
+    -DCMAKE_INSTALL_RPATH=$ORIGIN
 
 jobs:
   linux-x86_64:
@@ -45,12 +89,406 @@ jobs:
           cp ggml/LICENSE build/bin/ggml.txt
           cp LICENSE build/bin/stable-diffusion.cpp.txt
           zip -j "sd-${GITHUB_REF_NAME}-bin-Linux-Ubuntu-24.04-x86_64.zip" build/bin/*
+          sha256sum sd-*.zip
+
+      - name: Keep the zip for the release
+        uses: actions/upload-artifact@v6
+        with:
+          name: linux-x86_64
+          path: sd-*.zip
+          retention-days: 7
+
+  cuda-x64:
+    # CUDA 12.8.2, the toolkit llama.cpp b11200's ubuntu-cuda-12.8-x64 release
+    # is built with, so the package's libcudart.so.12, libcublas.so.12 and
+    # libcublasLt.so.12 come from the runtime Gaia already lays for llama.cpp
+    # (recipes/runtime/cudart-12.8-x64.toml); a driver stating CUDA 12.8 or
+    # later runs it. Machine code for compute 7.5, 8.0, 8.6 (the RTX 3080),
+    # 8.9, 9.0 and 12.0 (ggml compiles 12.0 as its 120a target), and PTX for
+    # 9.0, which the driver compiles for any newer device (10.x, 11.x, 12.1).
+    runs-on: ubuntu-24.04
+    container: nvidia/cuda:12.8.2-devel-ubuntu24.04
+
+    env:
+      CUDA_ARCHITECTURES: "75-real;80-real;86-real;89-real;90;120-real"
+      ASSET_SUFFIX: x86_64-cuda-12.8
+
+    steps:
+      # the container has no git; checkout needs it for submodules, and the
+      # build reads the commit from it
+      - name: Dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends git ca-certificates build-essential cmake ninja-build zip binutils
+
+      - name: Clone
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      # checkout runs as the host user, the container as root
+      - name: Git safe directory
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Build
+        run: |
+          cmake -S . -B build -G Ninja $SD_RELEASE_OPTIONS -DSD_CUDA=ON -DGGML_CUDA_NCCL=OFF -DCMAKE_CUDA_ARCHITECTURES="$CUDA_ARCHITECTURES"
+          cmake --build build --config Release --parallel "$(nproc)"
+
+      - name: Check the server's identity
+        # no driver in a hosted runner: the toolkit's stub stands in for
+        # libcuda.so.1, enough to load the program and print its version
+        run: |
+          mkdir -p /tmp/stub && ln -sf /usr/local/cuda/lib64/stubs/libcuda.so /tmp/stub/libcuda.so.1
+          LD_LIBRARY_PATH=/tmp/stub:/usr/local/cuda/lib64 ./build/bin/sd-server --version | tee version.txt
+          grep -q "commit ${GITHUB_SHA:0:7}" version.txt
+
+      - name: List the device code and the libraries asked for
+        run: |
+          for f in build/bin/libggml-cuda.so build/bin/libstable-diffusion.so; do
+            echo "== $f"; cuobjdump --list-elf "$f" | sed 's/.*\.\(sm_[0-9a-z]*\)\..*/\1/' | sort | uniq -c
+            cuobjdump --list-ptx "$f" | sed 's/.*\.\(sm_[0-9a-z]*\)\..*/\1/' | sort | uniq -c | sed 's/^/ptx /'
+          done
+          for f in build/bin/*; do readelf -d "$f" 2>/dev/null | grep NEEDED | sed "s|^|$(basename "$f"): |"; done
+
+      - name: Pack
+        run: |
+          cp ggml/LICENSE build/bin/ggml.txt
+          cp LICENSE build/bin/stable-diffusion.cpp.txt
+          zip -j "sd-${GITHUB_REF_NAME}-bin-Linux-Ubuntu-24.04-${ASSET_SUFFIX}.zip" build/bin/*
+          sha256sum sd-*.zip
+
+      - name: Keep the zip for the release
+        uses: actions/upload-artifact@v6
+        with:
+          name: cuda-x64
+          path: sd-*.zip
+          retention-days: 7
+
+  cuda-arm64:
+    # CUDA 13.4.1 on an aarch64 runner, the toolkit llama.cpp b11200's
+    # ubuntu-cuda-13.4-arm64 release is built with, so the package's
+    # libcudart.so.13, libcublas.so.13 and libcublasLt.so.13 come from the
+    # runtime Gaia already lays for llama.cpp on the GB10
+    # (recipes/runtime/cudart-llama-b11200-13.4-arm64.toml). Generic, not the
+    # GB10 alone: machine code for compute 7.5, 8.0, 8.6, 8.9, 9.0 (Grace
+    # Hopper), 10.0 (Grace Blackwell), 11.0 (Thor), 12.0 and 12.1 (the GB10;
+    # ggml compiles 12.x as its 12xa targets), and PTX for 9.0, which the
+    # driver compiles for any other newer device.
+    runs-on: ubuntu-24.04-arm
+    container: nvidia/cuda:13.4.1-devel-ubuntu24.04
+
+    env:
+      CUDA_ARCHITECTURES: "75-real;80-real;86-real;89-real;90;100-real;110-real;120-real;121-real"
+      ASSET_SUFFIX: aarch64-cuda-13.4
+
+    steps:
+      # GCC 14: the container's GCC 13 does not know the `sme` feature of
+      # ggml's armv9.2 processor variants
+      - name: Dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends git ca-certificates build-essential gcc-14 g++-14 cmake ninja-build zip binutils
+          echo "CC=gcc-14" >> "$GITHUB_ENV"
+          echo "CXX=g++-14" >> "$GITHUB_ENV"
+
+      - name: Clone
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Git safe directory
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Build
+        run: |
+          cmake -S . -B build -G Ninja $SD_RELEASE_OPTIONS -DSD_CUDA=ON -DGGML_CUDA_NCCL=OFF -DCMAKE_CUDA_ARCHITECTURES="$CUDA_ARCHITECTURES" -DCMAKE_CUDA_HOST_COMPILER=g++-14
+          cmake --build build --config Release --parallel "$(nproc)"
+
+      - name: Check the server's identity
+        run: |
+          mkdir -p /tmp/stub && ln -sf /usr/local/cuda/lib64/stubs/libcuda.so /tmp/stub/libcuda.so.1
+          LD_LIBRARY_PATH=/tmp/stub:/usr/local/cuda/lib64 ./build/bin/sd-server --version | tee version.txt
+          grep -q "commit ${GITHUB_SHA:0:7}" version.txt
+
+      - name: List the device code and the libraries asked for
+        run: |
+          for f in build/bin/libggml-cuda.so build/bin/libstable-diffusion.so; do
+            echo "== $f"; cuobjdump --list-elf "$f" | sed 's/.*\.\(sm_[0-9a-z]*\)\..*/\1/' | sort | uniq -c
+            cuobjdump --list-ptx "$f" | sed 's/.*\.\(sm_[0-9a-z]*\)\..*/\1/' | sort | uniq -c | sed 's/^/ptx /'
+          done
+          for f in build/bin/*; do readelf -d "$f" 2>/dev/null | grep NEEDED | sed "s|^|$(basename "$f"): |"; done
+
+      - name: Pack
+        run: |
+          cp ggml/LICENSE build/bin/ggml.txt
+          cp LICENSE build/bin/stable-diffusion.cpp.txt
+          zip -j "sd-${GITHUB_REF_NAME}-bin-Linux-Ubuntu-24.04-${ASSET_SUFFIX}.zip" build/bin/*
+          sha256sum sd-*.zip
+
+      - name: Keep the zip for the release
+        uses: actions/upload-artifact@v6
+        with:
+          name: cuda-arm64
+          path: sd-*.zip
+          retention-days: 7
+
+  cpu-arm64-v8.0:
+    # The aarch64 processor zip, the counterpart of the x86_64 one: every
+    # ggml processor variant of a Linux aarch64 build, the loader choosing the
+    # best the processor has at run time, down to armv8.0_1, the ARMv8.0
+    # floor (no dot product, no half-precision arithmetic, no SVE), so a
+    # robot board's Cortex-A53/A72 runs it. Everything loaded whatever the
+    # processor (sd-server, libstable-diffusion, ggml, ggml-base, WebP, WebM,
+    # the armv8.0_1 variant) is checked for instructions past ARMv8.0, and the
+    # server is run on an emulated Cortex-A53.
+    runs-on: ubuntu-24.04-arm
+    container: ubuntu:24.04
+
+    env:
+      ASSET_SUFFIX: aarch64
+
+    steps:
+      - name: Dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends git ca-certificates build-essential gcc-14 g++-14 cmake ninja-build zip binutils qemu-user
+          echo "CC=gcc-14" >> "$GITHUB_ENV"
+          echo "CXX=g++-14" >> "$GITHUB_ENV"
+
+      - name: Clone
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Git safe directory
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Build
+        # the code built outside the variants is compiled for ARMv8.0 itself,
+        # whatever the compiler's own default
+        run: |
+          cmake -S . -B build -G Ninja $SD_RELEASE_OPTIONS -DCMAKE_C_FLAGS="-march=armv8-a" -DCMAKE_CXX_FLAGS="-march=armv8-a"
+          cmake --build build --config Release --parallel "$(nproc)"
+
+      - name: Check the server's identity
+        run: |
+          ./build/bin/sd-server --version | tee version.txt
+          grep -q "commit ${GITHUB_SHA:0:7}" version.txt
+
+      - name: Check the ARMv8.0 floor
+        shell: bash
+        run: |
+          set -euo pipefail
+          ls build/bin/libggml-cpu-armv8.0_1.so
+          past=$'\t(sdot|udot|usdot|sudot|smmla|ummla|usmmla|bfdot|bfmmla|bfmlal[bt]?)\t|\t\\{?[zp][0-9]+(\\.|/)|\tf(add|sub|mul|mla|mls|div|max|min|maxnm|minnm|abd|neg|abs|sqrt|cmeq|cmge|cmgt|cvtzs|cvtzu|rint[a-z]?)\t(v[0-9]+\\.[48]h|h[0-9]+,)'
+          bad=0
+          for f in build/bin/*; do
+            case "$(basename "$f")" in
+              libggml-cpu-armv8.[1-9]*|libggml-cpu-armv9*) continue ;;
+            esac
+            readelf -h "$f" >/dev/null 2>&1 || continue
+            # dot product and int8/bf16 matrix instructions (v8.2+), SVE
+            # registers, half-precision arithmetic (v8.2 FP16)
+            n=$(objdump -d --no-show-raw-insn "$f" | grep -cE "$past" || true)
+            echo "$(basename "$f"): $n instructions past ARMv8.0"
+            [ "$n" -eq 0 ] || bad=1
+          done
+          [ "$bad" -eq 0 ]
+
+      - name: Run on an emulated Cortex-A53
+        run: |
+          qemu-aarch64 -cpu cortex-a53 ./build/bin/sd-server --version
+          qemu-aarch64 -cpu cortex-a53 ./build/bin/sd-server --list-devices | tee devices.txt
+          grep -q CPU devices.txt
+
+      - name: Pack
+        run: |
+          cp ggml/LICENSE build/bin/ggml.txt
+          cp LICENSE build/bin/stable-diffusion.cpp.txt
+          zip -j "sd-${GITHUB_REF_NAME}-bin-Linux-Ubuntu-24.04-${ASSET_SUFFIX}.zip" build/bin/*
+          sha256sum sd-*.zip
+
+      - name: Keep the zip for the release
+        uses: actions/upload-artifact@v6
+        with:
+          name: cpu-arm64-v8.0
+          path: sd-*.zip
+          retention-days: 7
+
+  vulkan-x64:
+    # upstream's ubuntu-latest-cmake-vulkan job: Ubuntu 24.04's Vulkan headers
+    # and glslc; the machine's Vulkan loader (libvulkan.so.1) finds the
+    # machine's own drivers, so any Vulkan GPU (AMD, NVIDIA, Intel) serves.
+    runs-on: ubuntu-24.04
+    container: ubuntu:24.04
+
+    env:
+      ASSET_SUFFIX: x86_64-vulkan
+
+    steps:
+      - name: Dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends git ca-certificates build-essential cmake ninja-build zip binutils libvulkan-dev glslc spirv-headers
+
+      - name: Clone
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Git safe directory
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Build
+        run: |
+          cmake -S . -B build -G Ninja $SD_RELEASE_OPTIONS -DSD_VULKAN=ON
+          cmake --build build --config Release --parallel "$(nproc)"
+
+      - name: Check the server's identity
+        run: |
+          ./build/bin/sd-server --version | tee version.txt
+          grep -q "commit ${GITHUB_SHA:0:7}" version.txt
+          for f in build/bin/*; do readelf -d "$f" 2>/dev/null | grep NEEDED | sed "s|^|$(basename "$f"): |"; done
+
+      - name: Pack
+        run: |
+          cp ggml/LICENSE build/bin/ggml.txt
+          cp LICENSE build/bin/stable-diffusion.cpp.txt
+          zip -j "sd-${GITHUB_REF_NAME}-bin-Linux-Ubuntu-24.04-${ASSET_SUFFIX}.zip" build/bin/*
+          sha256sum sd-*.zip
+
+      - name: Keep the zip for the release
+        uses: actions/upload-artifact@v6
+        with:
+          name: vulkan-x64
+          path: sd-*.zip
+          retention-days: 7
+
+  rocm-x64:
+    # HIP through AMD's ROCm 10.0.0 wheels (TheRock), as upstream's
+    # ubuntu-latest-rocm job and llama.cpp b11200's ubuntu-rocm-10.0-x64
+    # release build theirs. ROCm 10.0 because it is the ROCm of the row
+    # amd-1's HALO-DISCOVERY measured serving (llama.cpp b11200's
+    # ubuntu-rocm-10.0-x64, 86 of 86 cases on the Strix Halo) and the ROCm the
+    # Halo's Ubuntu 26.10 ships; the program asks the machine for
+    # libamdhip64, libhipblas and librocblas as that row does. The GPU
+    # targets are that same release's list (HALO-DISCOVERY §3.1 read them out
+    # of its libggml-hip.so), which holds gfx1151, the Halo's measured target;
+    # RELEASES.md says why this list and not one box's.
+    runs-on: ubuntu-24.04
+
+    env:
+      ROCM_VERSION: "10.0.0"
+      GPU_TARGETS: "gfx908;gfx90a;gfx942;gfx950;gfx1010;gfx1011;gfx1012;gfx1030;gfx1031;gfx1032;gfx1033;gfx1034;gfx1035;gfx1036;gfx1100;gfx1101;gfx1102;gfx1103;gfx1150;gfx1151;gfx1152;gfx1200;gfx1201"
+      ASSET_SUFFIX: x86_64-rocm-10.0
+
+    steps:
+      - name: Clone
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Disk before
+        run: df -h
+
+      - name: ROCm from AMD's wheels
+        run: |
+          python3 -m venv .venv
+          . .venv/bin/activate
+          python -m pip install --upgrade pip
+          python -m pip install ninja
+          python -m pip install --index-url https://stable.repo.amd.com/rocm/whl-next/ "rocm[libraries,devel]==${ROCM_VERSION}"
+          ROCM_PATH=$(rocm-sdk path --root)
+          echo "ROCM_PATH=$ROCM_PATH" >> "$GITHUB_ENV"
+          echo "HIP_PATH=$ROCM_PATH" >> "$GITHUB_ENV"
+          echo "CMAKE_PREFIX_PATH=$(rocm-sdk path --cmake)" >> "$GITHUB_ENV"
+          echo "PATH=$(rocm-sdk path --bin):$(pwd)/.venv/bin:${PATH}" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$ROCM_PATH/lib:${LD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
+          df -h
+
+      - name: Build
+        run: |
+          cmake -S . -B build -G Ninja $SD_RELEASE_OPTIONS \
+            -DCMAKE_HIP_COMPILER="$(hipconfig -l)/clang" \
+            -DCMAKE_HIP_FLAGS="-mllvm --amdgpu-unroll-threshold-local=600" \
+            -DSD_HIPBLAS=ON -DHIP_PLATFORM=amd \
+            -DGPU_TARGETS="$GPU_TARGETS" \
+            -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+          cmake --build build --config Release --parallel "$(nproc)"
+
+      - name: Check the server's identity
+        run: |
+          ./build/bin/sd-server --version | tee version.txt
+          grep -q "commit ${GITHUB_SHA:0:7}" version.txt
+
+      - name: List the GPU targets and the libraries asked for
+        run: |
+          strings build/bin/libggml-hip.so | grep -oE 'amdgcn-amd-amdhsa--gfx[0-9a-f]+' | sort -u
+          for f in build/bin/*; do readelf -d "$f" 2>/dev/null | grep NEEDED | sed "s|^|$(basename "$f"): |"; done
+
+      - name: Pack
+        run: |
+          cp ggml/LICENSE build/bin/ggml.txt
+          cp LICENSE build/bin/stable-diffusion.cpp.txt
+          zip -j "sd-${GITHUB_REF_NAME}-bin-Linux-Ubuntu-24.04-${ASSET_SUFFIX}.zip" build/bin/*
+          sha256sum sd-*.zip
+
+      - name: Keep the zip for the release
+        uses: actions/upload-artifact@v6
+        with:
+          name: rocm-x64
+          path: sd-*.zip
+          retention-days: 7
+
+  release:
+    # only a gaia-* tag publishes, and only once every zip above has built
+    if: startsWith(github.ref, 'refs/tags/gaia-')
+    needs: [linux-x86_64, cuda-x64, cuda-arm64, cpu-arm64-v8.0, vulkan-x64, rocm-x64]
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Clone
+        uses: actions/checkout@v6
+
+      - name: Gather the zips
+        uses: actions/download-artifact@v7
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: List every zip with its size and digest
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist
           sha256sum sd-*.zip > SHA256SUMS
           cat SHA256SUMS
+          base=$(sed -n 's/^Upstream base: `\(.*\)`$/\1/p' ../GAIA.md)
+          label() {
+            case "$1" in
+              *-x86_64.zip) echo "linux-x86_64 (processor)" ;;
+              *-x86_64-cuda-12.8.zip) echo "cuda-x64" ;;
+              *-aarch64-cuda-13.4.zip) echo "cuda-arm64" ;;
+              *-aarch64.zip) echo "cpu-arm64-v8.0 (processor)" ;;
+              *-x86_64-vulkan.zip) echo "vulkan-x64" ;;
+              *-x86_64-rocm-10.0.zip) echo "rocm-x64" ;;
+              *) echo "-" ;;
+            esac
+          }
+          {
+            echo "Gaia's patch stack on upstream ${base}, commit ${GITHUB_SHA}. The patches are listed in GAIA.md at this tag; how each zip is built, and the libraries it asks the machine or Gaia's runtimes for, in RELEASES.md."
+            echo
+            echo "| Asset | Job | Size (bytes) | sha256 |"
+            echo "|---|---|---|---|"
+            for z in sd-*.zip; do
+              echo "| \`$z\` | $(label "$z") | $(stat -c %s "$z") | \`$(sha256sum "$z" | cut -d' ' -f1)\` |"
+            done
+          } > ../notes.md
+          cat ../notes.md
 
       - name: Release
-        if: startsWith(github.ref, 'refs/tags/gaia-')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" sd-*.zip SHA256SUMS --verify-tag --title "$GITHUB_REF_NAME" --notes "Gaia's patch stack on upstream $(sed -n 's/^Upstream base: `\(.*\)`$/\1/p' GAIA.md), commit ${GITHUB_SHA}. The patches are listed in GAIA.md at this tag."
+          gh release create "$GITHUB_REF_NAME" dist/sd-*.zip dist/SHA256SUMS --verify-tag --title "$GITHUB_REF_NAME" --notes-file notes.md
